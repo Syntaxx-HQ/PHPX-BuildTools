@@ -1,0 +1,191 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * PHPX Build Tools CLI
+ *
+ * Main entry point for PHPX build commands
+ */
+
+// Find autoloader
+$autoloadPaths = [
+    __DIR__ . '/../vendor/autoload.php',
+    __DIR__ . '/../../../autoload.php',
+];
+
+$autoloaderFound = false;
+foreach ($autoloadPaths as $file) {
+    if (file_exists($file)) {
+        require_once $file;
+        $autoloaderFound = true;
+        break;
+    }
+}
+
+if (!$autoloaderFound) {
+    fwrite(STDERR, "Error: Composer autoloader not found.\n");
+    fwrite(STDERR, "Please run 'composer install' first.\n");
+    exit(1);
+}
+
+// Determine project root (where composer.json is)
+$projectRoot = getcwd();
+while (!file_exists($projectRoot . '/composer.json') && $projectRoot !== '/') {
+    $projectRoot = dirname($projectRoot);
+}
+
+if ($projectRoot === '/') {
+    fwrite(STDERR, "Error: Could not find project root (no composer.json found).\n");
+    exit(1);
+}
+
+// Get command
+$command = $argv[1] ?? 'help';
+$options = array_slice($argv, 2);
+
+// Parse global flags
+$devMode = false;
+$htmlMaps = false;
+foreach ($options as $option) {
+    if ($option === '--dev' || $option === '--development') {
+        $devMode = true;
+    } elseif ($option === '--create-html-maps') {
+        $htmlMaps = true;
+    }
+}
+
+// Colors for output
+define('COLOR_GREEN', "\033[0;32m");
+define('COLOR_BLUE', "\033[0;34m");
+define('COLOR_YELLOW', "\033[1;33m");
+define('COLOR_RED', "\033[0;31m");
+define('COLOR_RESET', "\033[0m");
+
+function success($message) {
+    echo COLOR_GREEN . "✓ " . $message . COLOR_RESET . "\n";
+}
+
+function error($message) {
+    fwrite(STDERR, COLOR_RED . "✗ " . $message . COLOR_RESET . "\n");
+}
+
+function info($message) {
+    echo COLOR_BLUE . "ℹ " . $message . COLOR_RESET . "\n";
+}
+
+function warning($message) {
+    echo COLOR_YELLOW . "⚠ " . $message . COLOR_RESET . "\n";
+}
+
+// Set environment variables for child processes
+if ($devMode) {
+    putenv('PHPX_DEV_MODE=1');
+    info("Development mode enabled (AI source maps will be generated)");
+}
+
+if ($htmlMaps) {
+    putenv('PHPX_HTML_MAPS=1');
+    info("HTML source maps enabled (data-phpx-source attributes will be added)");
+}
+
+// Command routing
+switch ($command) {
+    case 'build':
+        info("Running full build (pack + export)...");
+
+        // Run pack
+        $packScript = __DIR__ . '/../scripts/wasm-pack.php';
+        passthru("php " . escapeshellarg($packScript), $packStatus);
+
+        if ($packStatus !== 0) {
+            error("Pack failed with status $packStatus");
+            exit($packStatus);
+        }
+
+        // Run export
+        $exportScript = __DIR__ . '/../scripts/wasm-export.php';
+        passthru("php " . escapeshellarg($exportScript), $exportStatus);
+
+        if ($exportStatus !== 0) {
+            error("Export failed with status $exportStatus");
+            exit($exportStatus);
+        }
+
+        success("Build completed successfully!");
+        break;
+
+    case 'pack':
+        info("Running pack...");
+        $packScript = __DIR__ . '/../scripts/wasm-pack.php';
+        passthru("php " . escapeshellarg($packScript), $status);
+        exit($status);
+
+    case 'export':
+        info("Running export...");
+        $exportScript = __DIR__ . '/../scripts/wasm-export.php';
+        passthru("php " . escapeshellarg($exportScript), $status);
+        exit($status);
+
+    case 'watch':
+        info("Starting watch mode...");
+        $watchScript = __DIR__ . '/../scripts/wasm-watch.sh';
+
+        // Check if watch script is executable
+        if (!is_executable($watchScript)) {
+            chmod($watchScript, 0755);
+        }
+
+        // Pass --dev flag to watch script if in dev mode
+        $devFlag = $devMode ? ' --dev' : '';
+        passthru("bash " . escapeshellarg($watchScript) . $devFlag, $status);
+        exit($status);
+
+    case 'help':
+    case '--help':
+    case '-h':
+        echo <<<HELP
+PHPX Build Tools - Build system for PHPX WebAssembly projects
+
+Usage:
+  phpx-build <command> [options]
+
+Commands:
+  build     Full build (pack + export)
+  pack      Pack only (compile and bundle)
+  export    Export only (copy artifacts to public)
+  watch     Watch mode with auto-rebuild
+  help      Show this help message
+
+Options:
+  --dev             Enable development mode (generates AI source maps for debugging)
+  --create-html-maps Add source location metadata to HTML elements (data-phpx-source attributes)
+  --help, -h        Show help message
+
+Examples:
+  phpx-build build                     # Production build
+  phpx-build build --dev               # Development build with AI source maps
+  phpx-build build --create-html-maps  # Build with HTML source maps
+  phpx-build build --dev --create-html-maps  # Both AI and HTML source maps
+  phpx-build watch                     # Watch mode (production)
+  phpx-build watch --dev               # Watch mode with AI debugging
+  phpx-build pack                      # Pack only
+
+For more information, visit:
+  https://github.com/syntaxx/phpx-build-tools
+
+HELP;
+        exit(0);
+
+    case 'version':
+    case '--version':
+    case '-v':
+        $composerJson = json_decode(file_get_contents(__DIR__ . '/../composer.json'), true);
+        $version = $composerJson['version'] ?? 'dev-main';
+        echo "PHPX Build Tools version " . $version . "\n";
+        exit(0);
+
+    default:
+        error("Unknown command: $command");
+        echo "Run 'phpx-build help' for usage information.\n";
+        exit(1);
+}

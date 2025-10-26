@@ -1,0 +1,34 @@
+{
+    "name": "syntaxx/phpx-build-tools",
+    "description": "Build tools for PHPX WebAssembly projects",
+    "license": "MIT",
+    "type": "library",
+    "keywords": ["phpx", "webassembly", "build-tools", "wasm", "bundler"],
+    "authors": [
+        {
+            "name": "Bohuslav Simek",
+            "email": "bohuslav@simek.si"
+        }
+    ],
+    "require": {
+        "php": ">=8.3",
+        "syntaxx/webassembly-packer": "^0.1.3",
+        "syntaxx/phpx-compiler": "^0.1"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Syntaxx\\PHPX\\BuildTools\\": "src/"
+        }
+    },
+    "bin": [
+        "bin/phpx-build"
+    ],
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "config": {
+        "sort-packages": true
+    }
+}
