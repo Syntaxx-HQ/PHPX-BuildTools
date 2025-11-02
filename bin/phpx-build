@@ -140,6 +140,79 @@ switch ($command) {
         passthru("bash " . escapeshellarg($watchScript) . $devFlag, $status);
         exit($status);
 
+    case 'serve':
+        // Parse options
+        $requestedPort = null; // Will be set if --port is explicitly provided
+        $publicDir = 'public'; // Default public directory (relative to project root)
+
+        foreach ($options as $option) {
+            if (preg_match('/^--port=(\d+)$/', $option, $matches)) {
+                $requestedPort = (int)$matches[1];
+            } elseif (preg_match('/^--public=(.+)$/', $option, $matches)) {
+                $publicDir = $matches[1];
+            }
+        }
+
+        // Resolve public directory path (support both relative and absolute paths)
+        if (!str_starts_with($publicDir, '/')) {
+            $publicDir = $projectRoot . '/' . $publicDir;
+        }
+
+        // Normalize path
+        $publicDir = rtrim($publicDir, '/');
+
+        if (!is_dir($publicDir)) {
+            error("Public directory not found: $publicDir");
+            exit(1);
+        }
+
+        // Function to check if a port is available
+        $isPortAvailable = function($port) {
+            $connection = @fsockopen('localhost', $port, $errno, $errstr, 1);
+            if ($connection) {
+                fclose($connection);
+                return false; // Port is in use
+            }
+            return true; // Port is available
+        };
+
+        // Find an available port
+        $port = null;
+        if ($requestedPort !== null) {
+            // User explicitly requested a port, use it without checking
+            $port = $requestedPort;
+            info("Using explicitly requested port: $port");
+        } else {
+            // Auto-detect available port starting from 9999
+            $startPort = 9999;
+            $maxAttempts = 20;
+
+            for ($i = 0; $i < $maxAttempts; $i++) {
+                $tryPort = $startPort - $i;
+                if ($isPortAvailable($tryPort)) {
+                    $port = $tryPort;
+                    if ($i > 0) {
+                        info("Port $startPort was busy, using port $port instead");
+                    }
+                    break;
+                }
+            }
+
+            if ($port === null) {
+                error("Could not find an available port after $maxAttempts attempts (tried $startPort down to " . ($startPort - $maxAttempts + 1) . ")");
+                exit(1);
+            }
+        }
+
+        info("Starting development server on http://localhost:$port");
+        info("Document root: $publicDir");
+        info("Press Ctrl+C to stop the server");
+        echo "\n";
+
+        // Start PHP built-in server
+        passthru("php -S localhost:$port -t " . escapeshellarg($publicDir), $status);
+        exit($status);
+
     case 'help':
     case '--help':
     case '-h':
@@ -154,11 +227,14 @@ Commands:
   pack      Pack only (compile and bundle)
   export    Export only (copy artifacts to public)
   watch     Watch mode with auto-rebuild
+  serve     Start development server
   help      Show this help message
 
 Options:
   --dev             Enable development mode (generates AI source maps for debugging)
   --create-html-maps Add source location metadata to HTML elements (data-phpx-source attributes)
+  --port=<port>     Server port (default: auto-detect from 9999, serve command only)
+  --public=<dir>    Public directory to serve (default: public, serve command only)
   --help, -h        Show help message
 
 Examples:
@@ -169,6 +245,10 @@ Examples:
   phpx-build watch                     # Watch mode (production)
   phpx-build watch --dev               # Watch mode with AI debugging
   phpx-build pack                      # Pack only
+  phpx-build serve                     # Start dev server (auto-detect port from 9999)
+  phpx-build serve --port=8080         # Start dev server on specific port
+  phpx-build serve --public=dist       # Serve from 'dist' directory
+  phpx-build serve --port=3000 --public=build  # Custom port and directory
 
 For more information, visit:
   https://github.com/syntaxx/phpx-build-tools
